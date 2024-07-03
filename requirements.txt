@@ -1,0 +1,4 @@
+chardet==5.2.0
+geohash2==1.1
+mysql_connector_repackaged==0.3.1
+pandas==2.2.2
