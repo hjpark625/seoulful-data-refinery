@@ -1,6 +1,6 @@
 import chardet
 
-file_path = "./서울시 문화행사 정보(6.9 기준).csv"
+file_path = "./data_name.csv"
 
 with open(file_path, "rb") as f:
     result = chardet.detect(f.read())
