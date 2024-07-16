@@ -6,8 +6,10 @@ from enums.gu import GuSeq, GuLabel
 from utils.enum_mapping import get_enum_seq
 from utils.geohash_calc import calculate_geohash
 
+data_name = ""
+
 # 최초 데이터 파일
-file_path = Path("./data_name.csv")
+file_path = Path(f"./{data_name}.csv")
 
 # 원본 column key 맵핑 최초 csv파일 인코딩 문제로 인해 잠시 보류
 # column_key_mapping = {
@@ -96,7 +98,7 @@ df["is_free"] = df["is_free"].apply(lambda row: True if row == "무료" else Fal
 
 # 변환완료 후 새로운 csv 파일로 저장
 df.to_csv(
-    "./data_name_filled.csv",
+    f"./{data_name}_filled.csv",
     index=False,
     na_rep="NULL",
     encoding="utf-8-sig",
