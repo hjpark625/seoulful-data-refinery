@@ -6,77 +6,83 @@ from enums.gu import GuSeq, GuLabel
 from utils.enum_mapping import get_enum_seq
 from utils.geohash_calc import calculate_geohash
 
-data_name = ""
+data_name = "서울시 문화행사 정보(7.26)"
+new_data_name = "서울시 문화행사 정보(8.9)"
 
-# 최초 데이터 파일
-file_path = Path(f"./{data_name}.csv")
+# 최초 데이터 파일 경로
+file_path = Path(f"./{new_data_name}.csv")
 
-# 원본 column key 맵핑 최초 csv파일 인코딩 문제로 인해 잠시 보류
-# column_key_mapping = {
-#     "분류": "category_seq",
-#     "자치구": "gu_seq",
-#     "공연/행사명": "event_name",
-#     "날짜/기간": "period",
-#     "장소": "place",
-#     "기관명": "org_name",
-#     "이용대상": "use_target",
-#     "이용요금": "ticket_price",
-#     "출연자정보": "player",
-#     "프로그램소개": "describe",
-#     "기타내용": "etc_desc",
-#     "홈페이지 주소": "homepage_link",
-#     "대표이미지": "main_img",
-#     "신청일": "reg_date",
-#     "시민/기관": "is_public",
-#     "시작일": "start_date",
-#     "종료일": "end_date",
-#     "테마분류": "theme",
-#     "위도(X좌표)": "latitude",
-#     "경도(Y좌표)": "longitude",
-#     "유무료": "is_free",
-#     "문화포털상세URL": "detail_url",
-# }
+# 기존 데이터 파일 경로 (비교용)
+existing_file_path = Path(f"./{data_name}.csv")
 
-# 파일 인코딩 확인
-with open(file_path, "rb") as f:
-    result = chardet.detect(f.read())
-    detected_encoding = result["encoding"]
-    print(f"파일 인코딩 확인 단계에서 감지된 인코딩 형식: {detected_encoding}")
 
-# CSV 파일 로드
+# 파일 인코딩 확인 함수
+def detect_encoding(file_path):
+    with open(file_path, "rb") as f:
+        result = chardet.detect(f.read())
+    return result["encoding"]
+
+
+# 새 데이터 파일 인코딩 감지 및 로드
+detected_encoding = detect_encoding(file_path)
 try:
-    df = pd.read_csv(file_path, encoding="UTF-8")
-    # df = pd.read_csv(file_path, encoding=detected_encoding)
-    # print(f"감지된 {detected_encoding} 형식으로 CSV 파일을 성공적으로 로드했습니다.")
-    print("UTF-8로 인코딩 성공")
-except Exception:
+    df = pd.read_csv(file_path, encoding=detected_encoding)
+    print(f"새 데이터 파일을 {detected_encoding} 인코딩으로 성공적으로 로드했습니다.")
+except Exception as e:
+    print(f"새 데이터 파일 로드 실패: {e}")
+    df = pd.DataFrame()
+
+# 기존 데이터 파일 로드 (비교용)
+if existing_file_path.exists():
+    existing_encoding = detect_encoding(existing_file_path)
     try:
-        df = pd.read_csv(file_path, encoding="EUC-KR")
-        print("EUC-KR로 인코딩된 파일")
-    except Exception:
-        df = pd.read_csv(file_path, encoding=detected_encoding)
+        existing_df = pd.read_csv(existing_file_path, encoding=existing_encoding)
         print(
-            f"감지된 {detected_encoding} 형식으로 CSV 파일을 성공적으로 로드했습니다."
+            f"기존 데이터 파일을 {existing_encoding} 인코딩으로 성공적으로 로드했습니다."
         )
-
-
-# 원본 컬럼 이름 확인
-# print("Original Columns:", df.columns.tolist())
-
-# column key 맵핑
-# df = df.rename(columns=column_key_mapping)
-
-# 컬럼 이름 변경 후 확인
-# print("Renamed Columns:", df.columns.tolist())
+    except Exception as e:
+        print(f"기존 데이터 파일 로드 실패: {e}")
+        existing_df = pd.DataFrame()  # 로드 실패 시 빈 데이터프레임 사용
+else:
+    existing_df = pd.DataFrame()
 
 # 데이터 내부의 공백은 Null 처리
 df = df.fillna("NULL")
 
-# event_id 삽입 과정
-df.insert(0, "event_id", range(1, len(df) + 1))
+
+# latitude, longitude가 숫자로 변환 가능한지 확인하고 변환 불가능한 행 삭제
+def validate_and_convert_lat_lon(df, lat_column="latitude", lon_column="longitude"):
+    def convert(value):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
+    df[lat_column] = df[lat_column].apply(convert)
+    df[lon_column] = df[lon_column].apply(convert)
+
+    # 유효하지 않은 위도/경도 값이 있는 행 삭제
+    df = df.dropna(subset=[lat_column, lon_column])
+    return df
+
+
+# 위도(latitude), 경도(longitude) 변환 및 유효성 확인
+df = validate_and_convert_lat_lon(df)
+
+
+# geohash 계산 시 예외를 처리하고, 문제가 있는 행을 출력
+def safe_calculate_geohash(row):
+    try:
+        return calculate_geohash(row)
+    except Exception as e:
+        print(
+            f"geohash 생성 실패: {e}, latitude: {row['latitude']}, longitude: {row['longitude']}"
+        )
+        return None
+
 
 # latitude, longitude를 토대로 geohash 계산 후 새로운 칼럼 추가
-df["geohash"] = df.apply(lambda row: calculate_geohash(row), axis=1)
+df["geohash"] = df.apply(safe_calculate_geohash, axis=1)
 
 # Enum 맵핑
 category_label_to_seq = {
@@ -96,10 +102,39 @@ df["gu_seq"] = df.apply(
 df["is_public"] = df["is_public"].apply(lambda row: True if row == "기관" else False)
 df["is_free"] = df["is_free"].apply(lambda row: True if row == "무료" else False)
 
-# 변환완료 후 새로운 csv 파일로 저장
-df.to_csv(
-    f"./{data_name}_filled.csv",
+# 기존 데이터에 event_id가 없을 경우 처리
+if "event_id" not in existing_df.columns:
+    if not existing_df.empty:
+        # 기존 데이터에 event_id 추가
+        existing_df.insert(0, "event_id", range(1, len(existing_df) + 1))
+    last_event_id = 0
+else:
+    last_event_id = existing_df["event_id"].max()
+
+# 기존 데이터와 새로운 데이터 비교하여 중복되지 않는 행만 선택
+if not existing_df.empty:
+    new_data = df[~df.apply(tuple, 1).isin(existing_df.apply(tuple, 1))]
+else:
+    new_data = df
+
+# 새로운 event_id 삽입 과정
+if not new_data.empty:
+    new_data.insert(
+        0, "event_id", range(last_event_id + 1, last_event_id + len(new_data) + 1)
+    )
+
+# 기존 데이터와 합치기
+if not existing_df.empty:
+    final_df = pd.concat([existing_df, new_data], ignore_index=True)
+else:
+    final_df = new_data
+
+# 변환 완료 후 새로운 CSV 파일에 저장
+output_file_path = f"./{new_data_name}_filled.csv"
+final_df.to_csv(
+    output_file_path,
     index=False,
     na_rep="NULL",
     encoding="utf-8-sig",
 )
+print(f"포맷팅된 데이터가 {output_file_path} 파일에 저장되었습니다.")
