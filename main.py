@@ -6,8 +6,8 @@ from enums.gu import GuSeq, GuLabel
 from utils.enum_mapping import get_enum_seq
 from utils.geohash_calc import calculate_geohash
 
-data_name = "서울시 문화행사 정보(7.26)"
-new_data_name = "서울시 문화행사 정보(8.9)"
+data_name = ""
+new_data_name = ""
 
 # 최초 데이터 파일 경로
 file_path = Path(f"./{new_data_name}.csv")
