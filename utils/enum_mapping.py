@@ -14,5 +14,5 @@ category_label_to_seq = {
 gu_label_to_seq = {label.value: seq.value for label, seq in zip(GuLabel, GuSeq)}
 
 
-def get_enum_seq(label: GuLabel, enum_dict: dict[str, int]):
-    return enum_dict.get(label, CategorySeq.OTHER.value)
+def get_enum_seq(label: str, enum_dict: dict[str, int], default_value: int):
+    return enum_dict.get(label, default_value)
