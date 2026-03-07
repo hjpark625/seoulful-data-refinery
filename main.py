@@ -6,8 +6,8 @@ from enums.gu import GuSeq, GuLabel
 from utils.enum_mapping import get_enum_seq
 from utils.geohash_calc import calculate_geohash
 
-data_name = ""
-new_data_name = ""
+data_name = "서울시 문화행사 정보(1.31)"
+new_data_name = "서울시 문화행사 정보(2.1)"
 
 # 최초 데이터 파일 경로
 file_path = Path(f"./{new_data_name}.csv")
@@ -174,6 +174,14 @@ df["gu_seq"] = df.apply(
 df["is_public"] = df["is_public"].apply(lambda row: True if row == "기관" else False)
 df["is_free"] = df["is_free"].apply(lambda row: True if row == "무료" else False)
 
+# [신규 컬럼 처리] inqury_number (문의처): 문자열 유지 및 NULL 처리
+if "inqury_number" in df.columns:
+    df["inqury_number"] = df["inqury_number"].fillna("NULL").astype(str)
+
+# [신규 컬럼 처리] display_time (표시 시간): 문자열 유지 및 NULL 처리
+if "display_time" in df.columns:
+    df["display_time"] = df["display_time"].fillna("NULL").astype(str)
+
 # 기존 데이터에 event_id가 없을 경우 처리
 if "event_id" not in existing_df.columns:
     if not existing_df.empty:
@@ -183,47 +191,22 @@ if "event_id" not in existing_df.columns:
 else:
     last_event_id = existing_df["event_id"].max()
 
-# 기존 데이터와 새로운 데이터 비교하여 중복되지 않는 행만 선택
+# 중복 제거를 위한 컬럼 목록 정의
+subset_cols = ["title", "category_seq", "start_date", "geohash"]
+
+# 기존 데이터가 있는 경우 중복 제거 수행
 if not existing_df.empty:
-    # 중복 비교 기준 컬럼 설정 (Business Key)
-    # geohash는 미세한 좌표 차이로 다를 수 있으므로 제외
-    # 위도/경도도 부동소수점 이슈로 제외하는 것이 안전
-    subset_cols = [
-        "event_name",
-        "start_date",
-        "end_date",
-        "org_name",
-        "place",
-    ]
-    # 실제 존재하는 컬럼만 필터링
-    valid_subset = [
-        col for col in subset_cols if col in df.columns and col in existing_df.columns
-    ]
+    # 비교를 위해 키 컬럼을 문자열로 변환하여 결합 (NaN 처리 포함)
+    # geohash가 None일 수도 있으므로 문자열로 변환 안전장치
+    existing_keys = existing_df[subset_cols].astype(str).agg("-".join, axis=1)
+    new_keys = df[subset_cols].astype(str).agg("-".join, axis=1)
 
-    if valid_subset:
-        print(f"중복 제거 기준 컬럼: {valid_subset}")
-        # 기존 데이터에 있는 키 조합 확인
-        existing_keys = existing_df[valid_subset].apply(tuple, axis=1)
-        # 새 데이터의 키 조합 확인
-        new_keys = df[valid_subset].apply(tuple, axis=1)
-
-        # 중복되지 않는 데이터만 필터링
-        new_data = df[~new_keys.isin(existing_keys)]
-
-        duplicate_count = len(df) - len(new_data)
-        if duplicate_count > 0:
-            print(f"중복 데이터 {duplicate_count}건 제외됨.")
-    else:
-        print("중복 제거를 위한 공통 컬럼이 부족하여 전체 중복 비교를 수행합니다.")
-        common_cols = df.columns.intersection(existing_df.columns)
-        is_duplicate = (
-            df[common_cols]
-            .apply(tuple, 1)
-            .isin(existing_df[common_cols].apply(tuple, 1))
-        )
-        new_data = df[~is_duplicate]
+    # 기존 데이터에 없는 행만 선택
+    new_data = df[~new_keys.isin(existing_keys)].copy()
+    print(f"중복 제거 후 신규 데이터: {len(new_data)}건 (전체 {len(df)}건 중)")
 else:
-    new_data = df
+    new_data = df.copy()
+    print("기존 데이터 없음. 전체 데이터를 신규로 처리.")
 
 # 새로운 event_id 삽입 과정
 if not new_data.empty and "event_id" not in new_data.columns:
@@ -231,8 +214,8 @@ if not new_data.empty and "event_id" not in new_data.columns:
         0, "event_id", range(last_event_id + 1, last_event_id + len(new_data) + 1)
     )
 
-# 기존 데이터와 합치지 않고, 새로 포맷팅된 데이터만 저장
-final_df = new_data
+# 기존 데이터와 신규 데이터 병합
+final_df = pd.concat([existing_df, new_data], ignore_index=True)
 
 # 변환 완료 후 새로운 CSV 파일에 저장
 output_file_path = f"./{new_data_name}_filled.csv"
