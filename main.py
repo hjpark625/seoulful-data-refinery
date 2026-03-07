@@ -1,232 +1,421 @@
-import pandas as pd
-import chardet
+import argparse
 from pathlib import Path
-from enums.category import CategorySeq, CategoryLabel
-from enums.gu import GuSeq, GuLabel
+from typing import Any
+
+import pandas as pd
+
+from enums.category import CategoryLabel, CategorySeq
+from enums.gu import GuLabel, GuSeq
 from utils.enum_mapping import get_enum_seq
 from utils.geohash_calc import calculate_geohash
 
-data_name = "서울시 문화행사 정보(1.31)"
-new_data_name = "서울시 문화행사 정보(2.1)"
 
-# 최초 데이터 파일 경로
-file_path = Path(f"./{new_data_name}.csv")
+DEFAULT_PREVIOUS_PATH = Path("./서울시 문화행사 정보(2.1).csv")
+DEFAULT_CURRENT_PATH = Path("./서울시 문화행사 정보(3.7).csv")
+DEFAULT_OUTPUT_PATH = Path("./서울시 문화행사 정보(3.7)_filled.csv")
+DEFAULT_NEW_OUTPUT_PATH = Path("./서울시 문화행사 정보(3.7)_new.csv")
 
-# 기존 데이터 파일 경로 (비교용)
-existing_file_path = Path(f"./{data_name}.csv")
+STANDARD_COLUMN_ORDER = [
+    "event_id",
+    "category_seq",
+    "gu_seq",
+    "event_name",
+    "period",
+    "place",
+    "org_name",
+    "use_target",
+    "ticket_price",
+    "inqury_number",
+    "player",
+    "describe",
+    "etc_desc",
+    "homepage_link",
+    "main_img",
+    "reg_date",
+    "is_public",
+    "start_date",
+    "end_date",
+    "theme",
+    "latitude",
+    "longitude",
+    "is_free",
+    "detail_url",
+    "display_time",
+    "geohash",
+]
+
+COLUMN_RENAME_MAP = {
+    "Period": "period",
+    "Player": "player",
+}
+
+OBJECT_COLUMNS = [
+    "event_name",
+    "period",
+    "place",
+    "org_name",
+    "use_target",
+    "ticket_price",
+    "inqury_number",
+    "player",
+    "describe",
+    "etc_desc",
+    "homepage_link",
+    "main_img",
+    "reg_date",
+    "start_date",
+    "end_date",
+    "theme",
+    "detail_url",
+    "display_time",
+]
+
+TEXTUAL_COMPARE_COLUMNS = [
+    "event_name",
+    "period",
+    "place",
+    "org_name",
+    "use_target",
+    "ticket_price",
+    "inqury_number",
+    "player",
+    "describe",
+    "etc_desc",
+    "homepage_link",
+    "main_img",
+    "reg_date",
+    "start_date",
+    "end_date",
+    "theme",
+    "detail_url",
+    "display_time",
+]
 
 
-# 파일 스마트 로드 함수 (인코딩 자동 감지 및 모지바케 복구)
-def load_csv_smartly(file_path):
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="서울시 문화행사 CSV를 정제하고 신규 데이터 CSV를 생성합니다."
+    )
+    parser.add_argument(
+        "--previous",
+        type=Path,
+        default=DEFAULT_PREVIOUS_PATH,
+        help="이전 스냅샷 원본 CSV 경로",
+    )
+    parser.add_argument(
+        "--current",
+        type=Path,
+        default=DEFAULT_CURRENT_PATH,
+        help="현재 스냅샷 원본 CSV 경로",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT_PATH,
+        help="현재 스냅샷 정제본 CSV 경로",
+    )
+    parser.add_argument(
+        "--new-output",
+        type=Path,
+        default=DEFAULT_NEW_OUTPUT_PATH,
+        help="신규 데이터만 담은 CSV 경로",
+    )
+    return parser.parse_args()
+
+
+def load_csv_smartly(file_path: Path) -> pd.DataFrame:
     if not file_path.exists():
+        print(f"파일이 없어 건너뜁니다: {file_path}")
         return pd.DataFrame()
 
-    encodings = ["cp949", "utf-8", "euc-kr", "latin-1"]
-    df = None
+    encodings = ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]
 
-    for enc in encodings:
+    for encoding in encodings:
         try:
-            temp_df = pd.read_csv(file_path, encoding=enc)
-            # 성공적으로 읽히면 데이터 검증
-            # category_seq 컬럼이 있다면 내용을 확인하여 깨짐 여부 판단 (휴리스틱)
-            if "category_seq" in temp_df.columns:
-                sample = temp_df["category_seq"].dropna().astype(str).head(10).tolist()
-                # CategoryLabel 값 중 하나라도 포함되어 있는지 확인
-                valid_labels = [label.value for label in CategoryLabel]
-                # '1' 같은 숫자형태나 '전시/미술' 같은 텍스트 형태가 섞여있을 수 있음
-                # 하지만 모지바케가 발생하면 'ÇØ...' 처럼 됨.
+            df = pd.read_csv(file_path, encoding=encoding)
+            df = normalize_columns(df)
 
-                # 단순히 읽기에 성공했다고 넘어가면 안됨.
-                # 우선순위: cp949가 성공하면 가장 높음 (한국어 윈도우 기본)
-                # utf-8이 성공했는데 모지바케인 경우 -> repair 시도
+            if looks_like_mojibake(df):
+                repaired_df = repair_mojibake(df.copy())
+                repaired_df = normalize_columns(repaired_df)
+                print(f"모지바케 복구 적용: {file_path} (로드 인코딩 {encoding})")
+                return repaired_df
 
-                # ASCII만 있는 경우 어느 것이든 상관없음.
-                pass
-
-            print(f"Loaded with encoding: {enc}")
-            df = temp_df
-            break
+            print(f"CSV 로드 성공: {file_path} (인코딩 {encoding})")
+            return df
         except UnicodeDecodeError:
             continue
-        except Exception as e:
-            print(f"Error loading with {enc}: {e}")
+        except Exception as exc:
+            print(f"CSV 로드 실패: {file_path} (인코딩 {encoding}) - {exc}")
+
+    raise ValueError(f"지원된 인코딩으로 파일을 읽지 못했습니다: {file_path}")
+
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    return df.rename(columns=COLUMN_RENAME_MAP)
+
+
+def looks_like_mojibake(df: pd.DataFrame) -> bool:
+    for column in ["category_seq", "gu_seq", "event_name"]:
+        if column not in df.columns:
             continue
 
-    if df is None:
-        print(f"Failed to load {file_path}")
-        return pd.DataFrame()
+        sample = df[column].dropna().astype(str).head(20).tolist()
+        if not sample:
+            continue
 
-    # 모지바케 복구 로직 (UTF-8로 잘못 읽혀서 저장이 된 파일인 경우)
-    # 예: "ÇØ" (Latin-1) -> "해" (CP949)
-    # 확인 방법: category_seq가 있는데 valid_labels에 없는 한글 값도 아니고 이상한 문자만 있는 경우
-    if "category_seq" in df.columns:
-        # CategorySeq matching check
-        valid_labels = set(label.value for label in CategoryLabel)
+        suspicious_count = sum(
+            any(char in value for char in ["À", "Ã", "½", "°", "¿", "¼", "¾"])
+            for value in sample
+        )
+        if suspicious_count >= max(1, len(sample) // 2):
+            return True
 
-        def is_mojibake(series):
-            # 매칭률 계산
-            matches = series.isin(valid_labels).sum()
-            total = len(series)
-            if total == 0:
-                return False
-            return (matches / total) < 0.1  # 10% 미만 매칭이면 의심
+    return False
 
-        # 현재 데이터가 string인지 확인
-        if df["category_seq"].dtype == object:
-            if is_mojibake(df["category_seq"]):
-                print("Mojibake detected. Attempting repair...")
 
-                def fix_text(text):
-                    if not isinstance(text, str):
-                        return text
-                    try:
-                        # Latin-1로 인코딩 후 CP949로 디코딩
-                        return text.encode("latin-1").decode("cp949")
-                    except (UnicodeEncodeError, UnicodeDecodeError):
-                        return text
+def repair_mojibake(df: pd.DataFrame) -> pd.DataFrame:
+    def fix_text(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        try:
+            return value.encode("latin-1").decode("cp949")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return value
 
-                # 모든 Object 컬럼에 대해 복구 시도
-                for col in df.select_dtypes(include=["object"]).columns:
-                    df[col] = df[col].apply(fix_text)
-
-                print("Repair complete.")
+    for column in df.select_dtypes(include=["object"]).columns:
+        df[column] = df[column].apply(fix_text)
 
     return df
 
 
-# 새 데이터 파일 로드
-df = load_csv_smartly(file_path)
+def prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=STANDARD_COLUMN_ORDER)
 
-# 기존 데이터 파일 로드
-existing_df = load_csv_smartly(existing_file_path)
+    df = normalize_columns(df.copy())
 
-# 데이터 내부의 공백은 Null 처리
-df = df.fillna("NULL")
+    for column in STANDARD_COLUMN_ORDER:
+        if column not in df.columns and column != "event_id" and column != "geohash":
+            df[column] = pd.NA
+
+    df = df.dropna(how="all").copy()
+    df = validate_and_convert_lat_lon(df)
+    df["geohash"] = df.apply(safe_calculate_geohash, axis=1)
+
+    category_label_to_seq = {
+        label.value: seq.value for label, seq in zip(CategoryLabel, CategorySeq)
+    }
+    gu_label_to_seq = {label.value: seq.value for label, seq in zip(GuLabel, GuSeq)}
+
+    df["category_seq"] = df["category_seq"].apply(
+        lambda value: get_enum_seq(
+            normalize_text(value),
+            category_label_to_seq,
+            CategorySeq.OTHER.value,
+        )
+    )
+    df["gu_seq"] = df["gu_seq"].apply(
+        lambda value: get_enum_seq(
+            normalize_text(value),
+            gu_label_to_seq,
+            GuSeq.OTHER.value,
+        )
+    )
+
+    df["is_public"] = df["is_public"].apply(parse_public_flag)
+    df["is_free"] = df["is_free"].apply(parse_free_flag)
+
+    for column in OBJECT_COLUMNS:
+        df[column] = df[column].apply(normalize_text)
+
+    df["latitude"] = df["latitude"].astype(float)
+    df["longitude"] = df["longitude"].astype(float)
+
+    # 현재 스냅샷의 event_id는 파일 내부 순번으로 재생성합니다.
+    df = df.reset_index(drop=True)
+    df.insert(0, "event_id", range(1, len(df) + 1))
+
+    df = df[STANDARD_COLUMN_ORDER].copy()
+    df = df.drop_duplicates(subset=["detail_url", "event_name", "start_date", "place"])
+
+    return df.reset_index(drop=True)
 
 
-# 위도(latitude), 경도(longitude) 변환 및 유효성 확인
-def validate_and_convert_lat_lon(df, lat_column="latitude", lon_column="longitude"):
-    def convert(value):
+def normalize_text(value: Any) -> str:
+    if pd.isna(value):
+        return "NULL"
+
+    normalized = str(value).strip()
+    return normalized if normalized else "NULL"
+
+
+def validate_and_convert_lat_lon(
+    df: pd.DataFrame,
+    lat_column: str = "latitude",
+    lon_column: str = "longitude",
+) -> pd.DataFrame:
+    def convert(value: Any) -> float | None:
         try:
             return float(value)
-        except ValueError:
+        except (TypeError, ValueError):
             return None
 
     df[lat_column] = df[lat_column].apply(convert)
     df[lon_column] = df[lon_column].apply(convert)
 
-    # 위도/경도 값이 뒤바뀐 경우 (예: 위도가 90보다 크고 경도가 90보다 작은 경우) 스왑
-    # 한국 좌표계 기준: 위도 ~37, 경도 ~127
     swap_condition = (df[lat_column] > 90) & (df[lon_column] < 90)
     if swap_condition.any():
-        print(f"위도/경도 뒤바뀜 감지: {swap_condition.sum()}행 수정")
+        print(f"위도/경도 뒤바뀜 감지: {swap_condition.sum()}건 수정")
         df.loc[swap_condition, [lat_column, lon_column]] = df.loc[
             swap_condition, [lon_column, lat_column]
         ].values
 
-    # 유효하지 않은 위도/경도 값이 있는 행 삭제
-    df = df.dropna(subset=[lat_column, lon_column])
+    before_count = len(df)
+    df = df.dropna(subset=[lat_column, lon_column]).copy()
+    dropped_count = before_count - len(df)
+    if dropped_count:
+        print(f"좌표 누락으로 제외된 행: {dropped_count}건")
+
     return df
 
 
-# 새 데이터 위도/경도 검증 및 변환
-df = validate_and_convert_lat_lon(df)
-
-
-# geohash 계산 시 예외를 처리하고, 문제가 있는 행을 출력
-def safe_calculate_geohash(row):
+def safe_calculate_geohash(row: pd.Series) -> str:
     try:
         return calculate_geohash(row)
-    except Exception as e:
-        # print(f"geohash 생성 실패: {e}") # 너무 많은 로그 방지
-        return None
+    except Exception:
+        return "NULL"
 
 
-# 새 데이터 geohash 추가
-df["geohash"] = df.apply(safe_calculate_geohash, axis=1)
-
-# 기존 데이터 처리 (Geohash 누락 및 포맷 확인)
-if not existing_df.empty:
-    existing_df = validate_and_convert_lat_lon(existing_df)
-    if "geohash" not in existing_df.columns or existing_df["geohash"].isnull().any():
-        print("기존 데이터에 Geohash 계산 적용 중...")
-        existing_df["geohash"] = existing_df.apply(safe_calculate_geohash, axis=1)
+def parse_public_flag(value: Any) -> bool:
+    normalized = normalize_text(value)
+    return normalized == "기관"
 
 
-# Enum 맵핑
-category_label_to_seq = {
-    label.value: seq.value for label, seq in zip(CategoryLabel, CategorySeq)
-}
-gu_label_to_seq = {label.value: seq.value for label, seq in zip(GuLabel, GuSeq)}
+def parse_free_flag(value: Any) -> bool:
+    normalized = normalize_text(value)
+    return normalized == "무료"
 
-# category_seq로 변환
-df["category_seq"] = df.apply(
-    lambda row: get_enum_seq(
-        row["category_seq"], category_label_to_seq, CategorySeq.OTHER.value
-    ),
-    axis=1,
-)
-# gu_seq로 변환
-df["gu_seq"] = df.apply(
-    lambda row: get_enum_seq(row["gu_seq"], gu_label_to_seq, GuSeq.OTHER.value), axis=1
-)
-# is_public, is_free를 boolean으로 변환
-df["is_public"] = df["is_public"].apply(lambda row: True if row == "기관" else False)
-df["is_free"] = df["is_free"].apply(lambda row: True if row == "무료" else False)
 
-# [신규 컬럼 처리] inqury_number (문의처): 문자열 유지 및 NULL 처리
-if "inqury_number" in df.columns:
-    df["inqury_number"] = df["inqury_number"].fillna("NULL").astype(str)
+def build_comparison_key(row: pd.Series) -> str:
+    detail_url = normalize_text(row.get("detail_url"))
+    if detail_url != "NULL":
+        return f"detail_url::{detail_url}"
 
-# [신규 컬럼 처리] display_time (표시 시간): 문자열 유지 및 NULL 처리
-if "display_time" in df.columns:
-    df["display_time"] = df["display_time"].fillna("NULL").astype(str)
+    fields = [
+        normalize_text(row.get("event_name")),
+        normalize_text(row.get("start_date")),
+        normalize_text(row.get("place")),
+        normalize_text(row.get("geohash")),
+    ]
+    return "fallback::" + "||".join(fields)
 
-# 기존 데이터에 event_id가 없을 경우 처리
-if "event_id" not in existing_df.columns:
-    if not existing_df.empty:
-        # 기존 데이터에 event_id 추가
-        existing_df.insert(0, "event_id", range(1, len(existing_df) + 1))
-    last_event_id = 0
-else:
-    last_event_id = existing_df["event_id"].max()
 
-# 중복 제거를 위한 컬럼 목록 정의
-subset_cols = ["title", "category_seq", "start_date", "geohash"]
+def has_replacement_char(value: Any) -> bool:
+    return isinstance(value, str) and "\ufffd" in value
 
-# 기존 데이터가 있는 경우 중복 제거 수행
-if not existing_df.empty:
-    # 비교를 위해 키 컬럼을 문자열로 변환하여 결합 (NaN 처리 포함)
-    # geohash가 None일 수도 있으므로 문자열로 변환 안전장치
-    existing_keys = existing_df[subset_cols].astype(str).agg("-".join, axis=1)
-    new_keys = df[subset_cols].astype(str).agg("-".join, axis=1)
 
-    # 기존 데이터에 없는 행만 선택
-    new_data = df[~new_keys.isin(existing_keys)].copy()
-    print(f"중복 제거 후 신규 데이터: {len(new_data)}건 (전체 {len(df)}건 중)")
-else:
-    new_data = df.copy()
-    print("기존 데이터 없음. 전체 데이터를 신규로 처리.")
+def restore_from_previous_snapshot(
+    previous_df: pd.DataFrame,
+    current_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if previous_df.empty or current_df.empty:
+        return current_df
 
-# 새로운 event_id 삽입 과정
-if not new_data.empty and "event_id" not in new_data.columns:
-    new_data.insert(
-        0, "event_id", range(last_event_id + 1, last_event_id + len(new_data) + 1)
+    restored_df = current_df.copy()
+    previous_indexed = previous_df.copy()
+    previous_indexed["_comparison_key"] = previous_indexed.apply(
+        build_comparison_key, axis=1
     )
+    previous_lookup = previous_indexed.set_index("_comparison_key")
 
-# 기존 데이터와 신규 데이터 병합
-final_df = pd.concat([existing_df, new_data], ignore_index=True)
+    restored_count = 0
+    for index, row in restored_df.iterrows():
+        comparison_key = build_comparison_key(row)
+        if comparison_key not in previous_lookup.index:
+            continue
 
-# 변환 완료 후 새로운 CSV 파일에 저장
-output_file_path = f"./{new_data_name}_filled.csv"
-try:
-    final_df.to_csv(
-        output_file_path,
-        index=False,
-        na_rep="NULL",
-        encoding="utf-8-sig",
+        previous_row = previous_lookup.loc[comparison_key]
+        for column in STANDARD_COLUMN_ORDER:
+            if column == "event_id":
+                continue
+            current_value = row[column]
+            if has_replacement_char(current_value):
+                restored_df.at[index, column] = previous_row[column]
+                restored_count += 1
+
+    if restored_count:
+        print(f"이전 스냅샷 기준 텍스트 복원: {restored_count}개 필드")
+
+    return restored_df
+
+
+def count_rows_with_broken_text(df: pd.DataFrame) -> int:
+    if df.empty:
+        return 0
+
+    mask = pd.Series(False, index=df.index)
+    for column in TEXTUAL_COMPARE_COLUMNS:
+        if column not in df.columns:
+            continue
+        mask = mask | df[column].apply(has_replacement_char)
+    return int(mask.sum())
+
+
+def detect_new_rows(
+    previous_df: pd.DataFrame,
+    current_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if current_df.empty:
+        return current_df.copy()
+
+    current_keys = current_df.apply(build_comparison_key, axis=1)
+    if previous_df.empty:
+        print("이전 스냅샷이 없어 현재 전체 데이터를 신규로 간주합니다.")
+        return current_df.assign(_comparison_key=current_keys).drop(
+            columns=["_comparison_key"], errors="ignore"
+        )
+
+    previous_keys = set(previous_df.apply(build_comparison_key, axis=1).tolist())
+    new_rows = current_df.loc[~current_keys.isin(previous_keys)].copy()
+    print(f"신규 데이터 감지: {len(new_rows)}건 / 현재 전체 {len(current_df)}건")
+    return new_rows
+
+
+def save_csv(df: pd.DataFrame, output_path: Path) -> None:
+    df.to_csv(output_path, index=False, na_rep="NULL", encoding="utf-8-sig")
+    print(f"CSV 저장 완료: {output_path} ({len(df)}건)")
+
+
+def main() -> None:
+    args = parse_args()
+
+    previous_raw_df = load_csv_smartly(args.previous)
+    current_raw_df = load_csv_smartly(args.current)
+
+    previous_clean_df = prepare_dataframe(previous_raw_df)
+    current_clean_df = prepare_dataframe(current_raw_df)
+    current_clean_df = restore_from_previous_snapshot(
+        previous_clean_df, current_clean_df
     )
-    print(f"포맷팅된 데이터가 {output_file_path} 파일에 저장되었습니다.")
+    new_rows_df = detect_new_rows(previous_clean_df, current_clean_df)
 
-except Exception as e:
-    print(f"파일 저장 실패: {e}")
+    save_csv(current_clean_df, args.output)
+    save_csv(new_rows_df, args.new_output)
+
+    broken_current_rows = count_rows_with_broken_text(current_clean_df)
+    broken_new_rows = count_rows_with_broken_text(new_rows_df)
+    if broken_current_rows:
+        print(
+            "경고: 현재 정제본에 원본부터 손상된 문자열이 남아 있습니다. "
+            f"{broken_current_rows}개 행"
+        )
+    if broken_new_rows:
+        print(
+            "경고: 신규 데이터 중 원본부터 손상된 문자열이 남아 있습니다. "
+            f"{broken_new_rows}개 행"
+        )
+
+
+if __name__ == "__main__":
+    main()
