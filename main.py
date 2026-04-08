@@ -1,4 +1,3 @@
-import argparse
 from pathlib import Path
 from typing import Any
 
@@ -89,19 +88,10 @@ TEXTUAL_COMPARE_COLUMNS = [
 ]
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="서울시 문화행사 CSV를 정제하고 신규 데이터 CSV를 생성합니다."
-    )
-    parser.add_argument(
-        "previous_date",
-        help="이전 스냅샷 일자 (예: 3.7)",
-    )
-    parser.add_argument(
-        "current_date",
-        help="현재 스냅샷 일자 (예: 4.8)",
-    )
-    return parser.parse_args()
+def prompt_dates() -> tuple[str, str]:
+    previous_date = input("이전 스냅샷 일자를 입력하세요 (예: 3.7): ").strip()
+    current_date = input("현재 스냅샷 일자를 입력하세요 (예: 4.8): ").strip()
+    return previous_date, current_date
 
 
 def build_paths(previous_date: str, current_date: str) -> dict[str, Path]:
@@ -378,8 +368,8 @@ def save_csv(df: pd.DataFrame, output_path: Path) -> None:
 
 
 def main() -> None:
-    args = parse_args()
-    paths = build_paths(args.previous_date, args.current_date)
+    previous_date, current_date = prompt_dates()
+    paths = build_paths(previous_date, current_date)
 
     previous_raw_df = load_csv_smartly(paths["previous"])
     current_raw_df = load_csv_smartly(paths["current"])
