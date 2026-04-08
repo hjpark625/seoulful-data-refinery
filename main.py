@@ -10,10 +10,7 @@ from utils.enum_mapping import get_enum_seq
 from utils.geohash_calc import calculate_geohash
 
 
-DEFAULT_PREVIOUS_PATH = Path("./서울시 문화행사 정보(2.1).csv")
-DEFAULT_CURRENT_PATH = Path("./서울시 문화행사 정보(3.7).csv")
-DEFAULT_OUTPUT_PATH = Path("./서울시 문화행사 정보(3.7)_filled.csv")
-DEFAULT_NEW_OUTPUT_PATH = Path("./서울시 문화행사 정보(3.7)_new.csv")
+FILE_PREFIX = "서울시 문화행사 정보"
 
 STANDARD_COLUMN_ORDER = [
     "event_id",
@@ -97,30 +94,23 @@ def parse_args() -> argparse.Namespace:
         description="서울시 문화행사 CSV를 정제하고 신규 데이터 CSV를 생성합니다."
     )
     parser.add_argument(
-        "--previous",
-        type=Path,
-        default=DEFAULT_PREVIOUS_PATH,
-        help="이전 스냅샷 원본 CSV 경로",
+        "previous_date",
+        help="이전 스냅샷 일자 (예: 3.7)",
     )
     parser.add_argument(
-        "--current",
-        type=Path,
-        default=DEFAULT_CURRENT_PATH,
-        help="현재 스냅샷 원본 CSV 경로",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=DEFAULT_OUTPUT_PATH,
-        help="현재 스냅샷 정제본 CSV 경로",
-    )
-    parser.add_argument(
-        "--new-output",
-        type=Path,
-        default=DEFAULT_NEW_OUTPUT_PATH,
-        help="신규 데이터만 담은 CSV 경로",
+        "current_date",
+        help="현재 스냅샷 일자 (예: 4.8)",
     )
     return parser.parse_args()
+
+
+def build_paths(previous_date: str, current_date: str) -> dict[str, Path]:
+    return {
+        "previous": Path(f"./{FILE_PREFIX}({previous_date}).csv"),
+        "current": Path(f"./{FILE_PREFIX}({current_date}).csv"),
+        "output": Path(f"./{FILE_PREFIX}({current_date})_filled.csv"),
+        "new_output": Path(f"./{FILE_PREFIX}({current_date})_new.csv"),
+    }
 
 
 def load_csv_smartly(file_path: Path) -> pd.DataFrame:
@@ -389,9 +379,10 @@ def save_csv(df: pd.DataFrame, output_path: Path) -> None:
 
 def main() -> None:
     args = parse_args()
+    paths = build_paths(args.previous_date, args.current_date)
 
-    previous_raw_df = load_csv_smartly(args.previous)
-    current_raw_df = load_csv_smartly(args.current)
+    previous_raw_df = load_csv_smartly(paths["previous"])
+    current_raw_df = load_csv_smartly(paths["current"])
 
     previous_clean_df = prepare_dataframe(previous_raw_df)
     current_clean_df = prepare_dataframe(current_raw_df)
@@ -400,8 +391,8 @@ def main() -> None:
     )
     new_rows_df = detect_new_rows(previous_clean_df, current_clean_df)
 
-    save_csv(current_clean_df, args.output)
-    save_csv(new_rows_df, args.new_output)
+    save_csv(current_clean_df, paths["output"])
+    save_csv(new_rows_df, paths["new_output"])
 
     broken_current_rows = count_rows_with_broken_text(current_clean_df)
     broken_new_rows = count_rows_with_broken_text(new_rows_df)
