@@ -49,23 +49,21 @@ pip install -r requirements.txt
 python main.py
 ```
 
-실행하면 일자를 순서대로 입력받습니다.
+실행하면 일자와 Supabase 적재 여부를 순서대로 입력받습니다.
 
 ```
 이전 스냅샷 일자를 입력하세요 (예: 3.7): 3.7
 현재 스냅샷 일자를 입력하세요 (예: 4.8): 4.8
+
+... (데이터 정제 진행) ...
+
+Supabase에 신규 데이터를 적재하시겠습니까? [y/N]: y
 ```
 
-위 명령은 다음과 같이 동작합니다.
+- `y` 입력 시 Supabase 적재를 이어서 진행합니다.
+- `N` 또는 엔터만 누르면 적재 없이 종료합니다.
 
-| 구분                      | 경로                                   |
-| ------------------------- | -------------------------------------- |
-| 이전 스냅샷 원본 (읽기)   | `서울시 문화행사 정보(3.7).csv`        |
-| 현재 스냅샷 원본 (읽기)   | `서울시 문화행사 정보(4.8).csv`        |
-| 현재 스냅샷 정제본 (출력) | `서울시 문화행사 정보(4.8)_filled.csv` |
-| 신규 데이터 (출력)        | `서울시 문화행사 정보(4.8)_new.csv`    |
-
-### 처리 내용
+### 처리 내용 (데이터 정제)
 
 - 인코딩 자동 감지 및 모지바케(깨진 한글) 복구
 - 카테고리·구(區) 레이블을 seq 값으로 매핑
@@ -77,24 +75,20 @@ python main.py
 
 ---
 
-## 2단계 — Supabase 적재 (`sync_supabase.py`)
+## Supabase 환경변수 설정
 
-### 환경변수 설정
-
-프로젝트 루트의 `.env` 파일에 아래 값을 채웁니다.
+Supabase 적재를 사용하는 경우 프로젝트 루트의 `.env` 파일에 아래 값을 채웁니다.
 
 ```
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
-### 실행 방법
+`sync_supabase.py`를 단독으로 실행할 수도 있습니다.
 
 ```bash
-python sync_supabase.py --input <신규_CSV_경로>
+python sync_supabase.py --input "서울시 문화행사 정보(4.8)_new.csv"
 ```
-
-### 옵션
 
 | 옵션           | 기본값                              | 설명                        |
 | -------------- | ----------------------------------- | --------------------------- |
@@ -103,23 +97,12 @@ python sync_supabase.py --input <신규_CSV_경로>
 | `--table`      | `events`                            | 적재 대상 테이블명          |
 | `--batch-size` | `500`                               | 회당 insert 레코드 수       |
 
-### 예시
-
-```bash
-# 1단계에서 생성된 신규 데이터를 Supabase에 적재
-python sync_supabase.py --input "서울시 문화행사 정보(4.8)_new.csv"
-```
-
 ---
 
 ## 전체 실행 예시
 
 ```bash
-# 1단계: 3.7 → 4.8 스냅샷 정제
-python main.py 3.7 4.8
-
-# 2단계: 신규 데이터 Supabase 적재
-python sync_supabase.py --input "서울시 문화행사 정보(4.8)_new.csv"
+python main.py
 ```
 
 ---

@@ -1,5 +1,8 @@
+import os
 from pathlib import Path
 from typing import Any
+
+from sync_supabase import dataframe_to_records, insert_into_supabase, load_env_file
 
 import pandas as pd
 
@@ -396,6 +399,27 @@ def main() -> None:
             "경고: 신규 데이터 중 원본부터 손상된 문자열이 남아 있습니다. "
             f"{broken_new_rows}개 행"
         )
+
+    answer = input("\nSupabase에 신규 데이터를 적재하시겠습니까? [y/N]: ").strip().lower()
+    if answer != "y":
+        print("Supabase 적재를 건너뜁니다.")
+        return
+
+    load_env_file(Path("./.env"))
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+    if not supabase_url or not supabase_key:
+        raise RuntimeError("SUPABASE_URL 또는 SUPABASE_SERVICE_ROLE_KEY가 필요합니다.")
+
+    records = dataframe_to_records(new_rows_df)
+    insert_into_supabase(
+        records=records,
+        supabase_url=supabase_url,
+        supabase_key=supabase_key,
+        table="events",
+        batch_size=500,
+    )
 
 
 if __name__ == "__main__":
