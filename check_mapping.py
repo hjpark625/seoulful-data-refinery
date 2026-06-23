@@ -67,7 +67,7 @@ try:
     gu_label_to_seq = {label.value: seq.value for label, seq in zip(GuLabel, GuSeq)}
     unique_gus = df["gu_seq"].unique()
     for gu in unique_gus:
-        mapped = get_enum_seq(gu, gu_label_to_seq, GuSeq.OTHER.value)
+        mapped = get_enum_seq(gu, gu_label_to_seq, GuSeq.GWACHEON.value)
         print(
             f"'{gu}': {mapped} ("
             + ("Mapped" if gu in gu_label_to_seq else "MISSING")

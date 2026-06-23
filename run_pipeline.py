@@ -15,7 +15,7 @@ DEFAULT_ENV_PATH = Path("./.env")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="CSV 정제와 신규 데이터 Supabase 동기화를 순차 실행합니다."
+        description="CSV 정제와 신규 데이터 PostgreSQL 동기화를 순차 실행합니다."
     )
     parser.add_argument(
         "--previous",
@@ -45,23 +45,23 @@ def parse_args() -> argparse.Namespace:
         "--env-file",
         type=Path,
         default=DEFAULT_ENV_PATH,
-        help="Supabase 환경변수를 읽을 .env 파일 경로",
+        help="PostgreSQL 환경변수를 읽을 .env 파일 경로",
     )
     parser.add_argument(
         "--table",
         default="events",
-        help="동기화 대상 Supabase 테이블명",
+        help="동기화 대상 PostgreSQL 테이블명",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
         default=500,
-        help="Supabase insert 배치 크기",
+        help="PostgreSQL insert 배치 크기",
     )
     parser.add_argument(
         "--skip-sync",
         action="store_true",
-        help="CSV 생성까지만 수행하고 Supabase 동기화는 건너뜁니다.",
+        help="CSV 생성까지만 수행하고 PostgreSQL 동기화는 건너뜁니다.",
     )
     return parser.parse_args()
 
@@ -101,17 +101,17 @@ def main() -> None:
     print(f"신규 CSV 행 수: {new_row_count}건")
 
     if args.skip_sync:
-        print("`--skip-sync` 옵션으로 Supabase 동기화를 건너뜁니다.")
+        print("`--skip-sync` 옵션으로 PostgreSQL 동기화를 건너뜁니다.")
         return
 
     if new_row_count == 0:
-        print("신규 데이터가 없어 Supabase 동기화를 건너뜁니다.")
+        print("신규 데이터가 없어 PostgreSQL 동기화를 건너뜁니다.")
         return
 
     run_command(
         [
             python_executable,
-            "sync_supabase.py",
+            "sync_postgres.py",
             "--input",
             str(args.new_output),
             "--env-file",

@@ -27,7 +27,7 @@ class GuSeq(Enum):
     JONGRO = 23
     JUNG = 24
     JUNGRANG = 25
-    OTHER = 26
+    GWACHEON = 26
 
 
 class GuLabel(Enum):
@@ -56,4 +56,4 @@ class GuLabel(Enum):
     JONGRO = "종로구"
     JUNG = "중구"
     JUNGRANG = "중랑구"
-    OTHER = "기타"
+    GWACHEON = "경기도 과천시"
