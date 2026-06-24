@@ -1,5 +1,6 @@
 {
   "editor.defaultFormatter": "ms-python.black-formatter",
   "editor.formatOnSave": true,
-  "cSpell.words": ["chardet", "fillna"]
+  "cSpell.words": ["chardet", "fillna"],
+  "python.terminal.useEnvFile": true
 }
